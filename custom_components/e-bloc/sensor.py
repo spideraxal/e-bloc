@@ -259,40 +259,45 @@ class EBlocContorSensor(CoordinatorEntity, SensorEntity):
 
     def _process_data(self):
         """Extrage datele din coordinator și setează starea."""
-        coordinator_data = self.coordinator.data or {}
-        index_data = coordinator_data.get("index") or {}
-        data = index_data.get(self._key) or {}
-
-        index_vechi = (data.get("index_vechi") or "").strip()
-        index_nou = (data.get("index_nou") or "").strip()
-
-        # Valorile vin în mii (ex. 1481000 = 1481 mc)
         try:
-            index_vechi_val = int(float(index_vechi) // 1000) if index_vechi and index_vechi != "0" else None
-        except ValueError:
-            index_vechi_val = None
+            coordinator_data = self.coordinator.data or {}
+            index_data = coordinator_data.get("index") or {}
+            data = index_data.get(self._key) or {}
 
-        try:
-            index_nou_val = int(float(index_nou) // 1000) if index_nou and index_nou != "0" else None
-        except ValueError:
-            index_nou_val = None
+            index_vechi = (data.get("index_vechi") or "").strip()
+            index_nou = (data.get("index_nou") or "").strip()
 
-        # Starea senzorului este indexul nou (cel mai recent)
-        if index_nou_val is not None:
-            self._attr_native_value = index_nou_val
-        elif index_vechi_val is not None:
-            self._attr_native_value = index_vechi_val
-        else:
-            self._attr_native_value = None
+            # Valorile vin în mii (ex. 1481000 = 1481 mc)
+            try:
+                index_vechi_val = int(float(index_vechi) // 1000) if index_vechi and index_vechi != "0" else None
+            except (ValueError, TypeError):
+                index_vechi_val = None
 
-        # Atribute suplimentare
-        self._attr_extra_state_attributes = {
-            "Titlu": data.get("titlu") or "Necunoscut",
-            "Index vechi": f"{index_vechi_val} m³" if index_vechi_val is not None else "Necunoscut",
-            "Index nou": f"{index_nou_val} m³" if index_nou_val is not None else "Necunoscut",
-            "Data citire": data.get("data") or "Necunoscut",
-            "ID contor": data.get("id_contor") or "Necunoscut",
-        }
+            try:
+                index_nou_val = int(float(index_nou) // 1000) if index_nou and index_nou != "0" else None
+            except (ValueError, TypeError):
+                index_nou_val = None
+
+            # Starea senzorului este indexul nou (cel mai recent)
+            if index_nou_val is not None:
+                self._attr_native_value = index_nou_val
+            elif index_vechi_val is not None:
+                self._attr_native_value = index_vechi_val
+            else:
+                self._attr_native_value = None
+
+            # Atribute suplimentare
+            self._attr_extra_state_attributes = {
+                "Titlu": data.get("titlu") or "Necunoscut",
+                "Index vechi": f"{index_vechi_val} m\u00b3" if index_vechi_val is not None else "Necunoscut",
+                "Index nou": f"{index_nou_val} m\u00b3" if index_nou_val is not None else "Necunoscut",
+                "Data citire": data.get("data") or "Necunoscut",
+                "ID contor": data.get("id_contor") or "Necunoscut",
+            }
+        except Exception as e:
+            _LOGGER.error("Eroare la procesarea datelor contor %s: %s", self._key, e)
+            if not hasattr(self, '_attr_extra_state_attributes'):
+                self._attr_extra_state_attributes = {}
 
     @property
     def device_info(self):
@@ -319,29 +324,34 @@ class EBlocPlatiChitanteSensor(CoordinatorEntity, SensorEntity):
 
     def _process_data(self):
         """Extrage datele din coordinator și setează starea."""
-        coordinator_data = self.coordinator.data or {}
-        data = coordinator_data.get("receipts") or {}
-        numar_chitante = len(data)
+        try:
+            coordinator_data = self.coordinator.data or {}
+            data = coordinator_data.get("receipts") or {}
+            numar_chitante = len(data)
 
-        self._attr_native_value = numar_chitante
+            self._attr_native_value = numar_chitante
 
-        atribute = {"Număr total de chitanțe": numar_chitante}
-        for idx, chitanta_data in data.items():
-            if not isinstance(chitanta_data, dict):
-                continue
-            numar = chitanta_data.get("numar", "Necunoscut")
-            data_chitanta = chitanta_data.get("data", "Necunoscut")
-            suma = chitanta_data.get("suma", "0")
-            try:
-                suma_formatata = f"{int(suma) / 100:.2f} RON"
-            except (ValueError, TypeError):
-                suma_formatata = "Necunoscut"
+            atribute = {"Număr total de chitanțe": numar_chitante}
+            for idx, chitanta_data in data.items():
+                if not isinstance(chitanta_data, dict):
+                    continue
+                numar = chitanta_data.get("numar", "Necunoscut")
+                data_chitanta = chitanta_data.get("data", "Necunoscut")
+                suma = chitanta_data.get("suma", "0")
+                try:
+                    suma_formatata = f"{int(suma) / 100:.2f} RON"
+                except (ValueError, TypeError):
+                    suma_formatata = "Necunoscut"
 
-            atribute[f"Chitanță {idx}"] = numar
-            atribute[f"Data {idx}"] = data_chitanta
-            atribute[f"Sumă plătită {idx}"] = suma_formatata
+                atribute[f"Chitanță {idx}"] = numar
+                atribute[f"Data {idx}"] = data_chitanta
+                atribute[f"Sumă plătită {idx}"] = suma_formatata
 
-        self._attr_extra_state_attributes = atribute
+            self._attr_extra_state_attributes = atribute
+        except Exception as e:
+            _LOGGER.error("Eroare la procesarea datelor chitanțe: %s", e)
+            if not hasattr(self, '_attr_extra_state_attributes'):
+                self._attr_extra_state_attributes = {}
 
     @property
     def device_info(self):

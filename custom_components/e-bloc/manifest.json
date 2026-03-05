@@ -6,7 +6,7 @@
     "config_flow": true,
     "domain": "e-bloc",
     "name": "E-bloc.ro",
-    "version": "2.1.1",
+    "version": "2.1.2",
     "documentation": "https://github.com/spideraxal/e-bloc",
     "issue_tracker": "https://github.com/spideraxal/e-bloc/issues",
     "codeowners": ["@spideraxal"],
