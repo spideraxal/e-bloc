@@ -2,6 +2,7 @@ import logging
 from aiohttp import ClientSession
 from homeassistant import config_entries
 from homeassistant.core import callback
+from homeassistant.helpers.selector import TextSelector, TextSelectorConfig, TextSelectorType
 from .const import DOMAIN, PAYLOAD_LOGIN, HEADERS_LOGIN, URL_LOGIN
 import voluptuous as vol
 
@@ -33,7 +34,7 @@ class EBlocConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             is_valid = await self._validate_credentials(user_input["pUser"], user_input["pPass"])
             if is_valid:
                 _LOGGER.debug("Datele sunt valide. Salvăm configurația.")
-                return self.async_create_entry(title="Integrare pentru e-bloc.ro", data=user_input)
+                return self.async_create_entry(title="E-bloc.ro", data=user_input)
             else:
                 _LOGGER.debug("Datele de autentificare sunt invalide.")
                 errors["base"] = "invalid_auth"
@@ -72,9 +73,11 @@ class EBlocConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return vol.Schema(
             {
                 vol.Required("pUser"): str,
-                vol.Required("pPass"): str,
+                vol.Required("pPass"): TextSelector(
+                    TextSelectorConfig(type=TextSelectorType.PASSWORD)
+                ),
                 vol.Required("pIdAsoc"): str,
-                vol.Required("pIdAp"): str,  
+                vol.Required("pIdAp"): str,
             }
         )
 
@@ -114,8 +117,10 @@ class EBlocOptionsFlow(config_entries.OptionsFlow):
         return vol.Schema(
             {
                 vol.Optional("pUser", default=current_data.get("pUser", "")): str,
-                vol.Optional("pPass", default=current_data.get("pPass", "")): str,
+                vol.Optional("pPass", default=current_data.get("pPass", "")): TextSelector(
+                    TextSelectorConfig(type=TextSelectorType.PASSWORD)
+                ),
                 vol.Optional("pIdAsoc", default=current_data.get("pIdAsoc", "")): str,
-                vol.Optional("pIdAp", default=current_data.get("pIdAp", "")): str,  # Adăugăm pIdAp în schema
+                vol.Optional("pIdAp", default=current_data.get("pIdAp", "")): str,
             }
         )

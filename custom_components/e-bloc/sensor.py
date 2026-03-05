@@ -1,10 +1,15 @@
 import logging
 from datetime import datetime, timedelta
 from aiohttp import ClientSession
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.const import UnitOfVolume
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.update_coordinator import (
+    DataUpdateCoordinator,
+    UpdateFailed,
+    CoordinatorEntity,
+)
 from homeassistant.helpers.device_registry import DeviceEntryType
 
 from .const import (
@@ -20,6 +25,15 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 SCAN_INTERVAL = timedelta(minutes=5)
+
+DEVICE_INFO = {
+    "identifiers": {(DOMAIN, "home")},
+    "name": "E-bloc.ro",
+    "manufacturer": "E-bloc.ro",
+    "model": "Interfață UI pentru E-bloc.ro",
+    "entry_type": DeviceEntryType.SERVICE,
+}
+
 
 class EBlocDataUpdateCoordinator(DataUpdateCoordinator):
     """Coordonator pentru actualizarea datelor în integrarea E-bloc."""
@@ -57,11 +71,14 @@ class EBlocDataUpdateCoordinator(DataUpdateCoordinator):
                 if isinstance(home_info, dict) and home_info.get("luna_afisata"):
                     luna = home_info["luna_afisata"]
 
-            return {
+            result = {
                 "home": home_data,
                 "index": await self._fetch_data(URL_INDEX, {"pIdAsoc": self.config["pIdAsoc"], "pLuna": luna, "pIdAp": "-1"}),
                 "receipts": await self._fetch_data(URL_RECEIPTS, {"pIdAsoc": self.config["pIdAsoc"], "pIdAp": self.config["pIdAp"]}),
             }
+            _LOGGER.debug("Date actualizate cu succes: home=%s, index_keys=%s, receipts=%s",
+                         bool(home_data), list((result.get("index") or {}).keys()), bool(result.get("receipts")))
+            return result
         except Exception as e:
             raise UpdateFailed(f"Eroare la actualizarea datelor: {e}")
 
@@ -70,11 +87,16 @@ class EBlocDataUpdateCoordinator(DataUpdateCoordinator):
         payload = {"pUser": self.config["pUser"], "pPass": self.config["pPass"]}
         try:
             async with self.session.post(URL_LOGIN, data=payload, headers=HEADERS_LOGIN) as response:
-                if response.status == 200 and "Acces online proprietari" in await response.text():
+                response_text = await response.text()
+                _LOGGER.debug("Răspuns autentificare: status=%s, contains_marker=%s",
+                             response.status, "Acces online proprietari" in response_text)
+                if response.status == 200 and "Acces online proprietari" in response_text:
                     _LOGGER.debug("Autentificare reușită.")
                     self.authenticated = True
                 else:
                     raise UpdateFailed("Autentificare eșuată.")
+        except UpdateFailed:
+            raise
         except Exception as e:
             raise UpdateFailed(f"Eroare la autentificare: {e}")
 
@@ -119,6 +141,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][f"{entry.entry_id}_coordinator"] = coordinator
 
+    _LOGGER.debug("Coordinator data after first refresh: %s", coordinator.data is not None)
+
     sensors = [
         EBlocHomeSensor(coordinator),
         EBlocPlatiChitanteSensor(coordinator),
@@ -128,50 +152,57 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     index_data = (coordinator.data or {}).get("index") or {}
     for key, meter in index_data.items():
         if isinstance(meter, dict) and meter.get("id_contor") and meter["id_contor"] != "0":
+            _LOGGER.debug("Adăugăm senzor contor: key=%s, titlu=%s", key, meter.get("titlu"))
             sensors.append(EBlocContorSensor(coordinator, key, meter))
 
-    async_add_entities(sensors, update_before_add=True)
+    _LOGGER.debug("Total senzori creați: %d", len(sensors))
+    async_add_entities(sensors)
 
 
-class EBlocSensorBase(SensorEntity):
-    """Clasă de bază pentru senzorii E-bloc."""
-
-    def __init__(self, coordinator, name):
-        self._coordinator = coordinator
-        self._attr_name = name
-        self._attr_state = None
-        self._attr_extra_state_attributes = {}
-
-    async def async_update(self):
-        """Actualizează datele pentru senzor."""
-        await self._coordinator.async_request_refresh()
-
-
-class EBlocHomeSensor(EBlocSensorBase):
+class EBlocHomeSensor(CoordinatorEntity, SensorEntity):
     """Senzor pentru `AjaxGetHomeApInfo.php`."""
 
-    def __init__(self, coordinator):
-        super().__init__(coordinator, "Date client")
+    _attr_icon = "mdi:account-file"
 
-    async def async_update(self):
-        """Actualizează datele pentru senzorul `home`."""
-        coordinator_data = self._coordinator.data or {}
+    def __init__(self, coordinator):
+        """Inițializare senzor."""
+        super().__init__(coordinator)
+        self._attr_name = "Date client"
+        self._attr_unique_id = f"{DOMAIN}_client"
+        self._process_data()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Procesează datele noi de la coordonator."""
+        self._process_data()
+        self.async_write_ha_state()
+
+    def _process_data(self):
+        """Extrage datele din coordinator și setează starea."""
+        coordinator_data = self.coordinator.data or {}
         home_data = coordinator_data.get("home") or {}
-        # Find the first entry in home data (key may vary)
+
         data = {}
         if isinstance(home_data, dict) and home_data:
             data = next(iter(home_data.values()), {}) or {}
 
-        self._attr_state = data.get("cod_client") or "Necunoscut"
+        _LOGGER.debug("Home sensor data: datorie=%s, cod_client=%s, ap=%s",
+                      data.get("datorie"), data.get("cod_client"), data.get("ap"))
+
+        # Use restanță as state since cod_client can be null
+        datorie = data.get("datorie")
+        if datorie is not None:
+            self._attr_native_value = f"{int(datorie) / 100:.2f} RON"
+        else:
+            self._attr_native_value = "Necunoscut"
+
         self._attr_extra_state_attributes = {
             "Cod client": data.get("cod_client") or "Necunoscut",
             "Apartament": data.get("ap") or "Necunoscut",
             "Persoane declarate": data.get("nr_pers_afisat") or "Necunoscut",
             "Restanță de plată": f"{int(data.get('datorie') or 0) / 100:.2f} RON",
             "Ultima zi de plată": data.get("ultima_zi_plata") or "Necunoscut",
-            "Contor trimis": "Da"
-            if data.get("contoare_citite") == "1"
-            else "Nu",
+            "Contor trimis": "Da" if data.get("contoare_citite") == "1" else "Nu",
             "Începere citire contoare": data.get("citire_contoare_start") or "Necunoscut",
             "Încheiere citire contoare": data.get("citire_contoare_end") or "Necunoscut",
             "Luna cu datoria cea mai veche": data.get("luna_veche") or "Necunoscut",
@@ -180,174 +211,120 @@ class EBlocHomeSensor(EBlocSensorBase):
         }
 
     @property
-    def unique_id(self):
-        return f"{DOMAIN}_client"
-
-    @property
-    def name(self):
-        return self._attr_name
-
-    @property
-    def state(self):
-        return self._attr_state
-
-    @property
-    def extra_state_attributes(self):
-        return self._attr_extra_state_attributes
-
-    @property
-    def icon(self):
-        """Pictograma senzorului."""
-        return "mdi:account-file"
-
-    @property
     def device_info(self):
-        """Returnează informațiile dispozitivului."""
-        return {
-            "identifiers": {(DOMAIN, "home")},
-            "name": "Interfață UI pentru E-bloc.ro",
-            "manufacturer": "E-bloc.ro",
-            "model": "Interfață UI pentru E-bloc.ro",
-            "entry_type": DeviceEntryType.SERVICE,
-        }
+        return DEVICE_INFO
 
-class EBlocContorSensor(EBlocSensorBase):
+
+class EBlocContorSensor(CoordinatorEntity, SensorEntity):
     """Senzor individual pentru fiecare contor din `AjaxGetIndexContoare.php`."""
 
+    _attr_icon = "mdi:counter"
+    _attr_device_class = SensorDeviceClass.WATER
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_native_unit_of_measurement = UnitOfVolume.CUBIC_METERS
+
     def __init__(self, coordinator, key, meter_data):
+        """Inițializare senzor contor."""
+        super().__init__(coordinator)
         self._key = key
         self._contor_id = meter_data.get("id_contor", key)
         titlu = meter_data.get("titlu") or f"Contor {key}"
-        super().__init__(coordinator, f"Index {titlu}")
+        self._attr_name = f"Index {titlu}"
+        self._attr_unique_id = f"{DOMAIN}_contor_{self._contor_id}"
+        self._process_data()
 
-    async def async_update(self):
-        """Actualizează datele pentru acest contor."""
-        coordinator_data = self._coordinator.data or {}
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Procesează datele noi de la coordonator."""
+        self._process_data()
+        self.async_write_ha_state()
+
+    def _process_data(self):
+        """Extrage datele din coordinator și setează starea."""
+        coordinator_data = self.coordinator.data or {}
         index_data = coordinator_data.get("index") or {}
-        data = (index_data.get(self._key) or {})
+        data = index_data.get(self._key) or {}
 
         index_vechi = (data.get("index_vechi") or "").strip()
         index_nou = (data.get("index_nou") or "").strip()
 
         # Valorile vin în mii (ex. 1481000 = 1481 mc)
         try:
-            index_vechi_val = f"{int(float(index_vechi) // 1000)}" if index_vechi and index_vechi != "0" else "Necunoscut"
+            index_vechi_val = int(float(index_vechi) // 1000) if index_vechi and index_vechi != "0" else None
         except ValueError:
-            index_vechi_val = "Necunoscut"
+            index_vechi_val = None
 
         try:
-            index_nou_val = f"{int(float(index_nou) // 1000)}" if index_nou and index_nou != "0" else "Necunoscut"
+            index_nou_val = int(float(index_nou) // 1000) if index_nou and index_nou != "0" else None
         except ValueError:
-            index_nou_val = "Necunoscut"
+            index_nou_val = None
 
         # Starea senzorului este indexul nou (cel mai recent)
-        if index_nou_val != "Necunoscut":
-            self._attr_state = f"{index_nou_val} mc"
-        elif index_vechi_val != "Necunoscut":
-            self._attr_state = f"{index_vechi_val} mc"
+        if index_nou_val is not None:
+            self._attr_native_value = index_nou_val
+        elif index_vechi_val is not None:
+            self._attr_native_value = index_vechi_val
         else:
-            self._attr_state = "Necunoscut"
+            self._attr_native_value = None
 
         # Atribute suplimentare
         self._attr_extra_state_attributes = {
             "Titlu": data.get("titlu") or "Necunoscut",
-            "Index vechi": f"{index_vechi_val} mc" if index_vechi_val != "Necunoscut" else "Necunoscut",
-            "Index nou": f"{index_nou_val} mc" if index_nou_val != "Necunoscut" else "Necunoscut",
+            "Index vechi": f"{index_vechi_val} m³" if index_vechi_val is not None else "Necunoscut",
+            "Index nou": f"{index_nou_val} m³" if index_nou_val is not None else "Necunoscut",
             "Data citire": data.get("data") or "Necunoscut",
             "ID contor": data.get("id_contor") or "Necunoscut",
         }
 
     @property
-    def unique_id(self):
-        return f"{DOMAIN}_contor_{self._contor_id}"
-
-    @property
-    def name(self):
-        return self._attr_name
-
-    @property
-    def state(self):
-        return self._attr_state
-
-    @property
-    def extra_state_attributes(self):
-        return self._attr_extra_state_attributes
-
-    @property
-    def icon(self):
-        """Pictograma senzorului."""
-        return "mdi:counter"
-
-    @property
     def device_info(self):
-        """Returnează informațiile dispozitivului."""
-        return {
-            "identifiers": {(DOMAIN, "home")},
-            "name": "Interfață UI pentru E-bloc.ro",
-            "manufacturer": "E-bloc.ro",
-            "model": "Interfață UI pentru E-bloc.ro",
-            "entry_type": DeviceEntryType.SERVICE,
-        }
+        return DEVICE_INFO
 
-class EBlocPlatiChitanteSensor(EBlocSensorBase):
+
+class EBlocPlatiChitanteSensor(CoordinatorEntity, SensorEntity):
     """Senzor pentru `AjaxGetPlatiChitanteToti.php`."""
 
-    def __init__(self, coordinator):
-        super().__init__(coordinator, "Plăți și chitanțe")
+    _attr_icon = "mdi:credit-card-check-outline"
 
-    async def async_update(self):
-        """Actualizează datele pentru senzorul `plati_chitante`."""
-        coordinator_data = self._coordinator.data or {}
+    def __init__(self, coordinator):
+        """Inițializare senzor chitanțe."""
+        super().__init__(coordinator)
+        self._attr_name = "Plăți și chitanțe"
+        self._attr_unique_id = f"{DOMAIN}_plati_si_chitante"
+        self._process_data()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Procesează datele noi de la coordonator."""
+        self._process_data()
+        self.async_write_ha_state()
+
+    def _process_data(self):
+        """Extrage datele din coordinator și setează starea."""
+        coordinator_data = self.coordinator.data or {}
         data = coordinator_data.get("receipts") or {}
         numar_chitante = len(data)
 
-        # Setăm starea senzorului pe baza numărului de chitanțe
-        self._attr_state = numar_chitante
+        self._attr_native_value = numar_chitante
 
-        # Creăm atribute suplimentare
         atribute = {"Număr total de chitanțe": numar_chitante}
         for idx, chitanta_data in data.items():
+            if not isinstance(chitanta_data, dict):
+                continue
             numar = chitanta_data.get("numar", "Necunoscut")
             data_chitanta = chitanta_data.get("data", "Necunoscut")
             suma = chitanta_data.get("suma", "0")
-            suma_formatata = f"{int(suma) / 100:.2f} RON"
+            try:
+                suma_formatata = f"{int(suma) / 100:.2f} RON"
+            except (ValueError, TypeError):
+                suma_formatata = "Necunoscut"
 
-            # Formatul exact al atributelor (fără "Chitanță X")
             atribute[f"Chitanță {idx}"] = numar
             atribute[f"Data {idx}"] = data_chitanta
             atribute[f"Sumă plătită {idx}"] = suma_formatata
 
-        # Atribuim atributele suplimentare
         self._attr_extra_state_attributes = atribute
 
     @property
-    def unique_id(self):
-        return f"{DOMAIN}_plati_si_chitante"
-
-    @property
-    def name(self):
-        return self._attr_name
-
-    @property
-    def state(self):
-        return self._attr_state
-
-    @property
-    def extra_state_attributes(self):
-        return self._attr_extra_state_attributes
-
-    @property
-    def icon(self):
-        """Pictograma senzorului."""
-        return "mdi:credit-card-check-outline"
-
-    @property
     def device_info(self):
-        """Returnează informațiile dispozitivului."""
-        return {
-            "identifiers": {(DOMAIN, "home")},
-            "name": "Interfață UI pentru E-bloc.ro",
-            "manufacturer": "E-bloc.ro",
-            "model": "Interfață UI pentru E-bloc.ro",
-            "entry_type": DeviceEntryType.SERVICE,
-        }
+        return DEVICE_INFO
