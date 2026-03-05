@@ -51,6 +51,10 @@ class EBlocDataUpdateCoordinator(DataUpdateCoordinator):
         self.session = None
         self.authenticated = False
 
+        # Extract the apartment-only ID from pIdAp (e.g. "140861_496" -> "496")
+        raw_ap = str(config.get("pIdAp", ""))
+        self._pIdAp = raw_ap.split("_")[-1] if "_" in raw_ap else raw_ap
+
     async def _async_update_data(self):
         """Actualizează datele pentru toate componentele."""
         try:
@@ -62,7 +66,7 @@ class EBlocDataUpdateCoordinator(DataUpdateCoordinator):
             # Use current month for the index request
             current_month = datetime.now().strftime("%Y-%m")
 
-            home_data = await self._fetch_data(URL_HOME, {"pIdAsoc": self.config["pIdAsoc"], "pIdAp": self.config["pIdAp"]})
+            home_data = await self._fetch_data(URL_HOME, {"pIdAsoc": self.config["pIdAsoc"], "pIdAp": self._pIdAp})
 
             # Prefer luna_afisata from home data if available
             luna = current_month
@@ -74,7 +78,7 @@ class EBlocDataUpdateCoordinator(DataUpdateCoordinator):
             result = {
                 "home": home_data,
                 "index": await self._fetch_data(URL_INDEX, {"pIdAsoc": self.config["pIdAsoc"], "pLuna": luna, "pIdAp": "-1"}),
-                "receipts": await self._fetch_data(URL_RECEIPTS, {"pIdAsoc": self.config["pIdAsoc"], "pIdAp": self.config["pIdAp"]}),
+                "receipts": await self._fetch_data(URL_RECEIPTS, {"pIdAsoc": self.config["pIdAsoc"], "pIdAp": self._pIdAp}),
             }
             _LOGGER.debug("Date actualizate cu succes: home=%s, index_keys=%s, receipts=%s",
                          bool(home_data), list((result.get("index") or {}).keys()), bool(result.get("receipts")))
@@ -145,7 +149,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
     sensors = [
         EBlocHomeSensor(coordinator),
-        EBlocPlatiChitanteSensor(coordinator),
     ]
 
     # Create one sensor per real meter (skip entries with id_contor == "0")
@@ -154,6 +157,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         if isinstance(meter, dict) and meter.get("id_contor") and meter["id_contor"] != "0":
             _LOGGER.debug("Adăugăm senzor contor: key=%s, titlu=%s", key, meter.get("titlu"))
             sensors.append(EBlocContorSensor(coordinator, key, meter))
+
+    # Create one archive sensor per year found in receipts
+    receipts_data = (coordinator.data or {}).get("receipts") or {}
+    years_seen: set[str] = set()
+    for chitanta in receipts_data.values():
+        if isinstance(chitanta, dict):
+            luna = chitanta.get("luna", "")
+            if luna and len(luna) >= 4:
+                years_seen.add(luna[:4])
+    for year in sorted(years_seen):
+        _LOGGER.debug("Adăugăm senzor arhivă plăți: %s", year)
+        sensors.append(EBlocArhivaPlatiSensor(coordinator, year))
 
     _LOGGER.debug("Total senzori creați: %d", len(sensors))
     async_add_entities(sensors)
@@ -306,17 +321,18 @@ class EBlocContorSensor(CoordinatorEntity, SensorEntity):
         return DEVICE_INFO
 
 
-class EBlocPlatiChitanteSensor(CoordinatorEntity, SensorEntity):
-    """Senzor pentru `AjaxGetPlatiChitanteToti.php`."""
+class EBlocArhivaPlatiSensor(CoordinatorEntity, SensorEntity):
+    """Senzor pentru arhiva plăților pe un anumit an."""
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:credit-card-check-outline"
 
-    def __init__(self, coordinator):
-        """Inițializare senzor chitanțe."""
+    def __init__(self, coordinator, year: str):
+        """Inițializare senzor arhivă plăți per an."""
         super().__init__(coordinator)
-        self._attr_name = "Plăți și chitanțe"
-        self._attr_unique_id = f"{DOMAIN}_receipts"
+        self._year = year
+        self._attr_name = f"Arhivă plăți {year}"
+        self._attr_unique_id = f"{DOMAIN}_arhiva_plati_{year}"
         self._process_data()
 
     @callback
@@ -326,33 +342,47 @@ class EBlocPlatiChitanteSensor(CoordinatorEntity, SensorEntity):
         self.async_write_ha_state()
 
     def _process_data(self):
-        """Extrage datele din coordinator și setează starea."""
+        """Extrage chitanțele pentru anul curent și setează starea."""
         try:
             coordinator_data = self.coordinator.data or {}
-            data = coordinator_data.get("receipts") or {}
-            numar_chitante = len(data)
+            all_receipts = coordinator_data.get("receipts") or {}
 
-            self._attr_native_value = numar_chitante
+            # Filter receipts for this year
+            year_receipts: dict[str, dict] = {}
+            for idx, chitanta in all_receipts.items():
+                if isinstance(chitanta, dict):
+                    luna = chitanta.get("luna", "")
+                    if luna and luna.startswith(self._year):
+                        year_receipts[idx] = chitanta
 
-            atribute = {"Număr total de chitanțe": numar_chitante}
-            for idx, chitanta_data in data.items():
-                if not isinstance(chitanta_data, dict):
-                    continue
+            numar_chitante = len(year_receipts)
+            total_suma = 0
+
+            atribute = {"Număr chitanțe": numar_chitante}
+            for idx, chitanta_data in year_receipts.items():
                 numar = chitanta_data.get("numar", "Necunoscut")
                 data_chitanta = chitanta_data.get("data", "Necunoscut")
+                luna = chitanta_data.get("luna", "Necunoscut")
+                descriere = chitanta_data.get("descriere", "")
                 suma = chitanta_data.get("suma", "0")
                 try:
-                    suma_formatata = f"{int(suma) / 100:.2f} RON"
+                    suma_val = int(suma)
+                    total_suma += suma_val
+                    suma_formatata = f"{suma_val / 100:.2f} RON"
                 except (ValueError, TypeError):
                     suma_formatata = "Necunoscut"
 
                 atribute[f"Chitanță {idx}"] = numar
+                atribute[f"Luna {idx}"] = luna
                 atribute[f"Data {idx}"] = data_chitanta
                 atribute[f"Sumă plătită {idx}"] = suma_formatata
+                atribute[f"Descriere {idx}"] = descriere
 
+            atribute["Total plătit"] = f"{total_suma / 100:.2f} RON"
+            self._attr_native_value = numar_chitante
             self._attr_extra_state_attributes = atribute
         except Exception as e:
-            _LOGGER.error("Eroare la procesarea datelor chitanțe: %s", e)
+            _LOGGER.error("Eroare la procesarea datelor arhivă plăți %s: %s", self._year, e)
             if not hasattr(self, '_attr_extra_state_attributes'):
                 self._attr_extra_state_attributes = {}
 

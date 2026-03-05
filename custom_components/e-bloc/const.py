@@ -7,7 +7,7 @@ DEFAULT_SCAN_INTERVAL = 3600
 URL_LOGIN = "https://www.e-bloc.ro/index.php"
 URL_HOME = "https://www.e-bloc.ro/ajax/AjaxGetHomeApInfo.php"
 URL_INDEX = "https://www.e-bloc.ro/ajax/AjaxGetIndexContoare.php"
-URL_RECEIPTS = "https://www.e-bloc.ro/ajax/AjaxGetPlatiChitanteToti.php"
+URL_RECEIPTS = "https://www.e-bloc.ro/ajax/AjaxGetPlatiChitante.php"
 
 # Payload-uri implicite pentru autentificare și cereri POST
 DEFAULT_USER = ""
