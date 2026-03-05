@@ -11,6 +11,16 @@
                     "pIdAsoc": "ID Asociație",
                     "pIdAp": "ID Apartament"
                 }
+            },
+            "reconfigure": {
+                "title": "Reconfigurează e-bloc.ro",
+                "description": "Actualizează datele de conectare la e-bloc.ro.",
+                "data": {
+                    "pUser": "E-mail / Utilizator",
+                    "pPass": "Parolă",
+                    "pIdAsoc": "ID Asociație",
+                    "pIdAp": "ID Apartament"
+                }
             }
         },
         "error": {
@@ -18,7 +28,8 @@
             "connection_error": "Eroare de conexiune. Verifică conexiunea la internet sau serverul e-bloc.ro."
         },
         "abort": {
-            "already_configured": "Contul este deja configurat."
+            "already_configured": "Contul este deja configurat.",
+            "reconfigure_successful": "Reconfigurare reușită."
         }
     },
     "options": {

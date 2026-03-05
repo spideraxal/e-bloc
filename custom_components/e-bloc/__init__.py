@@ -8,7 +8,9 @@ _LOGGER = logging.getLogger(__name__)
 
 def mask_value(value):
     """Maschează valoarea, afișând doar primele 3 caractere."""
-    if not value or len(value) <= 3:
+    if not isinstance(value, str):
+        return value
+    if len(value) <= 3:
         return value
     return value[:3] + '*' * (len(value) - 3)
 
@@ -38,18 +40,21 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """
     _LOGGER.debug("Încercăm să eliminăm integrarea pentru E-bloc. ID intrare: %s", entry.entry_id)
 
-    # Close the coordinator's HTTP session
-    coordinator = hass.data[DOMAIN].get(f"{entry.entry_id}_coordinator")
-    if coordinator and hasattr(coordinator, "async_close"):
-        await coordinator.async_close()
+    # Unload the sensor platform first
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, ["sensor"])
 
-    # Eliminăm datele specifice acestei intrări
-    if entry.entry_id in hass.data[DOMAIN]:
-        hass.data[DOMAIN].pop(entry.entry_id)
+    if unload_ok:
+        # Close the coordinator's HTTP session
+        coordinator = hass.data[DOMAIN].get(f"{entry.entry_id}_coordinator")
+        if coordinator and hasattr(coordinator, "async_close"):
+            await coordinator.async_close()
+
+        # Eliminăm datele specifice acestei intrări
+        hass.data[DOMAIN].pop(entry.entry_id, None)
         hass.data[DOMAIN].pop(f"{entry.entry_id}_coordinator", None)
         _LOGGER.debug("Intrarea a fost eliminată cu succes.")
-        # Descărcăm platformele asociate
-        return await hass.config_entries.async_unload_platforms(entry, ["sensor"])
+
+    return unload_ok
 
     _LOGGER.warning("Intrarea cu ID %s nu a fost găsită în datele curente.", entry.entry_id)
     return False

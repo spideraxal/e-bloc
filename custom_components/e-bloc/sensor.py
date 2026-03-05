@@ -179,36 +179,54 @@ class EBlocHomeSensor(CoordinatorEntity, SensorEntity):
 
     def _process_data(self):
         """Extrage datele din coordinator și setează starea."""
-        coordinator_data = self.coordinator.data or {}
-        home_data = coordinator_data.get("home") or {}
+        try:
+            coordinator_data = self.coordinator.data or {}
+            home_data = coordinator_data.get("home") or {}
 
-        data = {}
-        if isinstance(home_data, dict) and home_data:
-            data = next(iter(home_data.values()), {}) or {}
+            data = {}
+            if isinstance(home_data, dict) and home_data:
+                data = next(iter(home_data.values()), {}) or {}
 
-        _LOGGER.debug("Home sensor data: datorie=%s, cod_client=%s, ap=%s",
-                      data.get("datorie"), data.get("cod_client"), data.get("ap"))
+            _LOGGER.debug("Home sensor data: datorie=%s, cod_client=%s, ap=%s",
+                          data.get("datorie"), data.get("cod_client"), data.get("ap"))
 
-        # Use restanță as state since cod_client can be null
-        datorie = data.get("datorie")
-        if datorie is not None:
-            self._attr_native_value = f"{int(datorie) / 100:.2f} RON"
-        else:
-            self._attr_native_value = "Necunoscut"
+            # Use restanță as state since cod_client can be null
+            datorie = data.get("datorie")
+            if datorie is not None:
+                try:
+                    self._attr_native_value = f"{int(datorie) / 100:.2f} RON"
+                except (ValueError, TypeError):
+                    self._attr_native_value = "Necunoscut"
+            else:
+                self._attr_native_value = "Necunoscut"
 
-        self._attr_extra_state_attributes = {
-            "Cod client": data.get("cod_client") or "Necunoscut",
-            "Apartament": data.get("ap") or "Necunoscut",
-            "Persoane declarate": data.get("nr_pers_afisat") or "Necunoscut",
-            "Restanță de plată": f"{int(data.get('datorie') or 0) / 100:.2f} RON",
-            "Ultima zi de plată": data.get("ultima_zi_plata") or "Necunoscut",
-            "Contor trimis": "Da" if data.get("contoare_citite") == "1" else "Nu",
-            "Începere citire contoare": data.get("citire_contoare_start") or "Necunoscut",
-            "Încheiere citire contoare": data.get("citire_contoare_end") or "Necunoscut",
-            "Luna cu datoria cea mai veche": data.get("luna_veche") or "Necunoscut",
-            "Luna afișată": data.get("luna_afisata") or "Necunoscut",
-            "Nivel restanță": data.get("nivel_restanta") or "Necunoscut",
-        }
+            self._attr_extra_state_attributes = {
+                "Cod client": data.get("cod_client") or "Necunoscut",
+                "Apartament": data.get("ap") or "Necunoscut",
+                "Persoane declarate": data.get("nr_pers_afisat") or "Necunoscut",
+                "Restanță de plată": self._safe_money(data.get("datorie")),
+                "Ultima zi de plată": data.get("ultima_zi_plata") or "Necunoscut",
+                "Contor trimis": "Da" if data.get("contoare_citite") == "1" else "Nu",
+                "Începere citire contoare": data.get("citire_contoare_start") or "Necunoscut",
+                "Încheiere citire contoare": data.get("citire_contoare_end") or "Necunoscut",
+                "Luna cu datoria cea mai veche": data.get("luna_veche") or "Necunoscut",
+                "Luna afișată": data.get("luna_afisata") or "Necunoscut",
+                "Nivel restanță": data.get("nivel_restanta") or "Necunoscut",
+            }
+        except Exception as e:
+            _LOGGER.error("Eroare la procesarea datelor Home: %s", e)
+            if not hasattr(self, '_attr_extra_state_attributes'):
+                self._attr_extra_state_attributes = {}
+
+    @staticmethod
+    def _safe_money(value):
+        """Formatează o valoare monetară (în bani) ca RON."""
+        if value is None:
+            return "Necunoscut"
+        try:
+            return f"{int(value) / 100:.2f} RON"
+        except (ValueError, TypeError):
+            return "Necunoscut"
 
     @property
     def device_info(self):
