@@ -28,6 +28,7 @@ HEADERS_LOGIN = {
 HEADERS_POST = {
     "Accept": "application/json, text/javascript, */*; q=0.01",
     "Content-Type": "application/x-www-form-urlencoded",
+    "X-Requested-With": "XMLHttpRequest",
     "Referer": "https://www.e-bloc.ro/index.php?page=19&t=1735328869",
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
 }

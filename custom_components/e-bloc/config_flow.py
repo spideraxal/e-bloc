@@ -2,7 +2,7 @@ import logging
 from aiohttp import ClientSession
 from homeassistant import config_entries
 from homeassistant.core import callback
-from .const import DOMAIN, PAYLOAD_LOGIN, HEADERS_LOGIN, URL_LOGIN, PAYLOAD_LOGIN
+from .const import DOMAIN, PAYLOAD_LOGIN, HEADERS_LOGIN, URL_LOGIN
 import voluptuous as vol
 
 _LOGGER = logging.getLogger(__name__)

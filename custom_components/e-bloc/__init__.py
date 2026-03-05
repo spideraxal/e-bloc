@@ -38,9 +38,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """
     _LOGGER.debug("Încercăm să eliminăm integrarea pentru E-bloc. ID intrare: %s", entry.entry_id)
 
+    # Close the coordinator's HTTP session
+    coordinator = hass.data[DOMAIN].get(f"{entry.entry_id}_coordinator")
+    if coordinator and hasattr(coordinator, "async_close"):
+        await coordinator.async_close()
+
     # Eliminăm datele specifice acestei intrări
     if entry.entry_id in hass.data[DOMAIN]:
         hass.data[DOMAIN].pop(entry.entry_id)
+        hass.data[DOMAIN].pop(f"{entry.entry_id}_coordinator", None)
         _LOGGER.debug("Intrarea a fost eliminată cu succes.")
         # Descărcăm platformele asociate
         return await hass.config_entries.async_unload_platforms(entry, ["sensor"])

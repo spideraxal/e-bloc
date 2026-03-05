@@ -1,6 +1,5 @@
 import logging
-import aiofiles
-from datetime import timedelta
+from datetime import datetime, timedelta
 from aiohttp import ClientSession
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -46,9 +45,21 @@ class EBlocDataUpdateCoordinator(DataUpdateCoordinator):
             if not self.authenticated:
                 await self._authenticate()
 
+            # Use current month for the index request
+            current_month = datetime.now().strftime("%Y-%m")
+
+            home_data = await self._fetch_data(URL_HOME, {"pIdAsoc": self.config["pIdAsoc"], "pIdAp": self.config["pIdAp"]})
+
+            # Prefer luna_afisata from home data if available
+            luna = current_month
+            if isinstance(home_data, dict):
+                home_info = next(iter(home_data.values()), None) if home_data else None
+                if isinstance(home_info, dict) and home_info.get("luna_afisata"):
+                    luna = home_info["luna_afisata"]
+
             return {
-                "home": await self._fetch_data(URL_HOME, {"pIdAsoc": self.config["pIdAsoc"], "pIdAp": self.config["pIdAp"]}),
-                "index": await self._fetch_data(URL_INDEX, {"pIdAsoc": self.config["pIdAsoc"], "pLuna": "2024-12", "pIdAp": self.config["pIdAp"]}),
+                "home": home_data,
+                "index": await self._fetch_data(URL_INDEX, {"pIdAsoc": self.config["pIdAsoc"], "pLuna": luna, "pIdAp": "-1"}),
                 "receipts": await self._fetch_data(URL_RECEIPTS, {"pIdAsoc": self.config["pIdAsoc"], "pIdAp": self.config["pIdAp"]}),
             }
         except Exception as e:
@@ -72,7 +83,20 @@ class EBlocDataUpdateCoordinator(DataUpdateCoordinator):
         try:
             async with self.session.post(url, data=payload, headers=HEADERS_POST) as response:
                 if response.status == 200:
-                    return await response.json()
+                    data = await response.json(content_type=None)
+                    # Handle null JSON responses and session expiry
+                    if data is None:
+                        _LOGGER.debug("Răspuns null de la %s", url)
+                        return {}
+                    # Detect session expiry (server returns {"1":{"status":"nologin"}})
+                    if isinstance(data, dict):
+                        first_val = next(iter(data.values()), None)
+                        if isinstance(first_val, dict) and first_val.get("status") == "nologin":
+                            _LOGGER.warning("Sesiune expirată, re-autentificare...")
+                            self.authenticated = False
+                            await self._authenticate()
+                            return await self._fetch_data(url, payload)
+                    return data
                 else:
                     _LOGGER.error("Eroare la accesarea %s: Status %s", url, response.status)
                     return {}
@@ -80,17 +104,32 @@ class EBlocDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Eroare la conexiunea cu serverul: %s", e)
             return {}
 
+    async def async_close(self):
+        """Închide sesiunea HTTP."""
+        if self.session and not self.session.closed:
+            await self.session.close()
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
     """Setăm senzorii pentru integrarea E-bloc."""
     coordinator = EBlocDataUpdateCoordinator(hass, entry.data)
     await coordinator.async_config_entry_first_refresh()
 
+    # Store coordinator reference for cleanup on unload
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN][f"{entry.entry_id}_coordinator"] = coordinator
+
     sensors = [
         EBlocHomeSensor(coordinator),
-        EBlocContoareSensor(coordinator),
         EBlocPlatiChitanteSensor(coordinator),
     ]
+
+    # Create one sensor per real meter (skip entries with id_contor == "0")
+    index_data = (coordinator.data or {}).get("index") or {}
+    for key, meter in index_data.items():
+        if isinstance(meter, dict) and meter.get("id_contor") and meter["id_contor"] != "0":
+            sensors.append(EBlocContorSensor(coordinator, key, meter))
+
     async_add_entities(sensors, update_before_add=True)
 
 
@@ -116,24 +155,28 @@ class EBlocHomeSensor(EBlocSensorBase):
 
     async def async_update(self):
         """Actualizează datele pentru senzorul `home`."""
-        data = self._coordinator.data.get("home", {}).get("1", {})
-        self._attr_state = data.get("cod_client", "Necunoscut")
+        coordinator_data = self._coordinator.data or {}
+        home_data = coordinator_data.get("home") or {}
+        # Find the first entry in home data (key may vary)
+        data = {}
+        if isinstance(home_data, dict) and home_data:
+            data = next(iter(home_data.values()), {}) or {}
+
+        self._attr_state = data.get("cod_client") or "Necunoscut"
         self._attr_extra_state_attributes = {
-            "Cod client": data.get("cod_client", "Necunoscut"),
-            "Apartament": data.get("ap", "Necunoscut"),
-            "Persoane declarate": data.get("nr_pers_afisat", "Necunoscut"),
-            "Restanță de plată": f"{int(data.get('datorie', 0)) / 100:.2f} RON"
-            if data.get("datorie") != "Necunoscut"
-            else "Necunoscut",
-            "Ultima zi de plată": data.get("ultima_zi_plata", "Necunoscut"),
+            "Cod client": data.get("cod_client") or "Necunoscut",
+            "Apartament": data.get("ap") or "Necunoscut",
+            "Persoane declarate": data.get("nr_pers_afisat") or "Necunoscut",
+            "Restanță de plată": f"{int(data.get('datorie') or 0) / 100:.2f} RON",
+            "Ultima zi de plată": data.get("ultima_zi_plata") or "Necunoscut",
             "Contor trimis": "Da"
-            if data.get("contoare_citite", "Necunoscut") == "1"
+            if data.get("contoare_citite") == "1"
             else "Nu",
-            "Începere citire contoare": data.get("citire_contoare_start", "Necunoscut"),
-            "Încheiere citire contoare": data.get("citire_contoare_end", "Necunoscut"),
-            "Luna cu datoria cea mai veche": data.get("luna_veche", "Necunoscut"),
-            "Luna afișată": data.get("luna_afisata", "Necunoscut"),
-            "Nivel restanță": data.get("nivel_restanta", "Necunoscut"),
+            "Începere citire contoare": data.get("citire_contoare_start") or "Necunoscut",
+            "Încheiere citire contoare": data.get("citire_contoare_end") or "Necunoscut",
+            "Luna cu datoria cea mai veche": data.get("luna_veche") or "Necunoscut",
+            "Luna afișată": data.get("luna_afisata") or "Necunoscut",
+            "Nivel restanță": data.get("nivel_restanta") or "Necunoscut",
         }
 
     @property
@@ -168,51 +211,55 @@ class EBlocHomeSensor(EBlocSensorBase):
             "entry_type": DeviceEntryType.SERVICE,
         }
 
-class EBlocContoareSensor(EBlocSensorBase):
-    """Senzor pentru `AjaxGetIndexContoare.php`."""
+class EBlocContorSensor(EBlocSensorBase):
+    """Senzor individual pentru fiecare contor din `AjaxGetIndexContoare.php`."""
 
-    def __init__(self, coordinator):
-        super().__init__(coordinator, "Index contor")
+    def __init__(self, coordinator, key, meter_data):
+        self._key = key
+        self._contor_id = meter_data.get("id_contor", key)
+        titlu = meter_data.get("titlu") or f"Contor {key}"
+        super().__init__(coordinator, f"Index {titlu}")
 
     async def async_update(self):
-        """Actualizează datele pentru senzorul `index`."""
-        data = self._coordinator.data.get("index", {}).get("2", {})
-        index_vechi = data.get("index_vechi", "").strip()
-        index_nou = data.get("index_nou", "").strip()
+        """Actualizează datele pentru acest contor."""
+        coordinator_data = self._coordinator.data or {}
+        index_data = coordinator_data.get("index") or {}
+        data = (index_data.get(self._key) or {})
 
-        # Eliminăm zecimalele (ultimele trei cifre)
+        index_vechi = (data.get("index_vechi") or "").strip()
+        index_nou = (data.get("index_nou") or "").strip()
+
+        # Valorile vin în mii (ex. 1481000 = 1481 mc)
         try:
-            index_vechi = (
-                f"{int(float(index_vechi) // 1000)}" if index_vechi else "Necunoscut"
-            )
+            index_vechi_val = f"{int(float(index_vechi) // 1000)}" if index_vechi and index_vechi != "0" else "Necunoscut"
         except ValueError:
-            index_vechi = "Necunoscut"
+            index_vechi_val = "Necunoscut"
 
         try:
-            index_nou = (
-                f"{int(float(index_nou) // 1000)}" if index_nou else "Necunoscut"
-            )
+            index_nou_val = f"{int(float(index_nou) // 1000)}" if index_nou and index_nou != "0" else "Necunoscut"
         except ValueError:
-            index_nou = "Necunoscut"
+            index_nou_val = "Necunoscut"
 
-        # Setăm starea senzorului pentru `index_vechi`
-        self._attr_state = (
-            f"{index_vechi} mc" if index_vechi != "Necunoscut" else "Necunoscut"
-        )
+        # Starea senzorului este indexul nou (cel mai recent)
+        if index_nou_val != "Necunoscut":
+            self._attr_state = f"{index_nou_val} mc"
+        elif index_vechi_val != "Necunoscut":
+            self._attr_state = f"{index_vechi_val} mc"
+        else:
+            self._attr_state = "Necunoscut"
 
         # Atribute suplimentare
         self._attr_extra_state_attributes = {
-            "Index vechi": f"{index_vechi} mc"
-            if index_vechi != "Necunoscut"
-            else "Necunoscut",
-            "Index nou": f"{index_nou} mc"
-            if index_nou != "Necunoscut"
-            else "",
+            "Titlu": data.get("titlu") or "Necunoscut",
+            "Index vechi": f"{index_vechi_val} mc" if index_vechi_val != "Necunoscut" else "Necunoscut",
+            "Index nou": f"{index_nou_val} mc" if index_nou_val != "Necunoscut" else "Necunoscut",
+            "Data citire": data.get("data") or "Necunoscut",
+            "ID contor": data.get("id_contor") or "Necunoscut",
         }
 
     @property
     def unique_id(self):
-        return f"{DOMAIN}_contor"
+        return f"{DOMAIN}_contor_{self._contor_id}"
 
     @property
     def name(self):
@@ -250,7 +297,8 @@ class EBlocPlatiChitanteSensor(EBlocSensorBase):
 
     async def async_update(self):
         """Actualizează datele pentru senzorul `plati_chitante`."""
-        data = self._coordinator.data.get("receipts", {})
+        coordinator_data = self._coordinator.data or {}
+        data = coordinator_data.get("receipts") or {}
         numar_chitante = len(data)
 
         # Setăm starea senzorului pe baza numărului de chitanțe
