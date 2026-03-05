@@ -2,8 +2,15 @@ import logging
 from aiohttp import ClientSession
 from homeassistant import config_entries
 from homeassistant.core import callback
-from homeassistant.helpers.selector import TextSelector, TextSelectorConfig, TextSelectorType
-from .const import DOMAIN, HEADERS_LOGIN, URL_LOGIN
+from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
+)
+from .const import DOMAIN, DEFAULT_SCAN_INTERVAL, HEADERS_LOGIN, URL_LOGIN
 import voluptuous as vol
 
 _LOGGER = logging.getLogger(__name__)
@@ -29,6 +36,9 @@ def _get_form_schema(defaults=None):
             ),
             vol.Required("pIdAsoc", default=d.get("pIdAsoc", "")): str,
             vol.Required("pIdAp", default=d.get("pIdAp", "")): str,
+            vol.Optional("scan_interval", default=d.get("scan_interval", DEFAULT_SCAN_INTERVAL)): NumberSelector(
+                NumberSelectorConfig(min=30, max=3600, step=1, unit_of_measurement="s", mode=NumberSelectorMode.BOX)
+            ),
         }
     )
 

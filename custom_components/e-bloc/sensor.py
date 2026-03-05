@@ -14,6 +14,7 @@ from homeassistant.helpers.device_registry import DeviceEntryType
 
 from .const import (
     DOMAIN,
+    DEFAULT_SCAN_INTERVAL,
     URL_LOGIN,
     HEADERS_LOGIN,
     HEADERS_POST,
@@ -23,8 +24,6 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-SCAN_INTERVAL = timedelta(minutes=5)
 
 DEVICE_INFO = {
     "identifiers": {(DOMAIN, "home")},
@@ -40,11 +39,12 @@ class EBlocDataUpdateCoordinator(DataUpdateCoordinator):
 
     def __init__(self, hass, config):
         """Inițializare coordonator."""
+        scan_interval = int(config.get("scan_interval", DEFAULT_SCAN_INTERVAL))
         super().__init__(
             hass,
             _LOGGER,
             name="EBlocDataUpdateCoordinator",
-            update_interval=SCAN_INTERVAL,
+            update_interval=timedelta(seconds=scan_interval),
         )
         self.hass = hass
         self.config = config

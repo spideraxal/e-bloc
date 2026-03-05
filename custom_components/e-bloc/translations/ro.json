@@ -9,7 +9,8 @@
                     "pUser": "E-mail / Utilizator",
                     "pPass": "Parolă",
                     "pIdAsoc": "ID Asociație",
-                    "pIdAp": "ID Apartament"
+                    "pIdAp": "ID Apartament",
+                    "scan_interval": "Interval actualizare (secunde)"
                 }
             },
             "reconfigure": {
@@ -19,7 +20,8 @@
                     "pUser": "E-mail / Utilizator",
                     "pPass": "Parolă",
                     "pIdAsoc": "ID Asociație",
-                    "pIdAp": "ID Apartament"
+                    "pIdAp": "ID Apartament",
+                    "scan_interval": "Interval actualizare (secunde)"
                 }
             }
         },
@@ -41,7 +43,8 @@
                     "pUser": "E-mail / Utilizator",
                     "pPass": "Parolă",
                     "pIdAsoc": "ID Asociație",
-                    "pIdAp": "ID Apartament"
+                    "pIdAp": "ID Apartament",
+                    "scan_interval": "Interval actualizare (secunde)"
                 }
             }
         }

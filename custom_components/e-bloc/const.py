@@ -1,5 +1,8 @@
 DOMAIN = "e-bloc"
 
+# Interval implicit de actualizare (în secunde)
+DEFAULT_SCAN_INTERVAL = 3600
+
 # URL-uri
 URL_LOGIN = "https://www.e-bloc.ro/index.php"
 URL_HOME = "https://www.e-bloc.ro/ajax/AjaxGetHomeApInfo.php"

@@ -1,14 +1,12 @@
 {
-    "dependencies": [],
-    "requirements": [],
-    "homeassistant": "2024.11.0",
-    "iot_class": "cloud_polling",
-    "config_flow": true,
     "domain": "e-bloc",
     "name": "E-bloc.ro",
-    "version": "2.1.2",
-    "documentation": "https://github.com/spideraxal/e-bloc",
-    "issue_tracker": "https://github.com/spideraxal/e-bloc/issues",
     "codeowners": ["@spideraxal"],
-    "platforms": ["sensor"]
+    "config_flow": true,
+    "dependencies": [],
+    "documentation": "https://github.com/spideraxal/e-bloc",
+    "iot_class": "cloud_polling",
+    "issue_tracker": "https://github.com/spideraxal/e-bloc/issues",
+    "requirements": [],
+    "version": "2.1.3"
 }
