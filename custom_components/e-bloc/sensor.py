@@ -162,14 +162,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 class EBlocHomeSensor(CoordinatorEntity, SensorEntity):
     """Senzor pentru `AjaxGetHomeApInfo.php`."""
 
+    _attr_has_entity_name = True
     _attr_icon = "mdi:account-file"
 
     def __init__(self, coordinator):
         """Inițializare senzor."""
         super().__init__(coordinator)
         self._attr_name = "Date client"
-        self._attr_unique_id = f"{DOMAIN}_client"
-        self._attr_suggested_object_id = "e_bloc_date_client"
+        self._attr_unique_id = f"{DOMAIN}_home_client"
         self._process_data()
 
     @callback
@@ -237,6 +237,7 @@ class EBlocHomeSensor(CoordinatorEntity, SensorEntity):
 class EBlocContorSensor(CoordinatorEntity, SensorEntity):
     """Senzor individual pentru fiecare contor din `AjaxGetIndexContoare.php`."""
 
+    _attr_has_entity_name = True
     _attr_icon = "mdi:counter"
     _attr_device_class = SensorDeviceClass.WATER
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
@@ -249,8 +250,7 @@ class EBlocContorSensor(CoordinatorEntity, SensorEntity):
         self._contor_id = meter_data.get("id_contor", key)
         titlu = meter_data.get("titlu") or f"Contor {key}"
         self._attr_name = f"Index {titlu}"
-        self._attr_unique_id = f"{DOMAIN}_contor_{self._contor_id}"
-        self._attr_suggested_object_id = f"e_bloc_index_{titlu.lower().replace(' ', '_').replace('.', '')}"
+        self._attr_unique_id = f"{DOMAIN}_index_{self._contor_id}"
         self._process_data()
 
     @callback
@@ -309,14 +309,14 @@ class EBlocContorSensor(CoordinatorEntity, SensorEntity):
 class EBlocPlatiChitanteSensor(CoordinatorEntity, SensorEntity):
     """Senzor pentru `AjaxGetPlatiChitanteToti.php`."""
 
+    _attr_has_entity_name = True
     _attr_icon = "mdi:credit-card-check-outline"
 
     def __init__(self, coordinator):
         """Inițializare senzor chitanțe."""
         super().__init__(coordinator)
         self._attr_name = "Plăți și chitanțe"
-        self._attr_unique_id = f"{DOMAIN}_plati_si_chitante"
-        self._attr_suggested_object_id = "e_bloc_plati_si_chitante"
+        self._attr_unique_id = f"{DOMAIN}_receipts"
         self._process_data()
 
     @callback
