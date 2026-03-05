@@ -169,6 +169,7 @@ class EBlocHomeSensor(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         self._attr_name = "Date client"
         self._attr_unique_id = f"{DOMAIN}_client"
+        self._attr_suggested_object_id = "e_bloc_date_client"
         self._process_data()
 
     @callback
@@ -249,6 +250,7 @@ class EBlocContorSensor(CoordinatorEntity, SensorEntity):
         titlu = meter_data.get("titlu") or f"Contor {key}"
         self._attr_name = f"Index {titlu}"
         self._attr_unique_id = f"{DOMAIN}_contor_{self._contor_id}"
+        self._attr_suggested_object_id = f"e_bloc_index_{titlu.lower().replace(' ', '_').replace('.', '')}"
         self._process_data()
 
     @callback
@@ -314,6 +316,7 @@ class EBlocPlatiChitanteSensor(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         self._attr_name = "Plăți și chitanțe"
         self._attr_unique_id = f"{DOMAIN}_plati_si_chitante"
+        self._attr_suggested_object_id = "e_bloc_plati_si_chitante"
         self._process_data()
 
     @callback
