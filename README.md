@@ -1,3 +1,5 @@
+> Cod original: https://github.com/cnecrea/e-bloc
+
 ![ebloc](https://github.com/user-attachments/assets/cf86528b-b474-4d4a-a068-f539d2c7d7fb)
 
 # 🏠 Integrarea E-bloc.ro pentru Home Assistant
