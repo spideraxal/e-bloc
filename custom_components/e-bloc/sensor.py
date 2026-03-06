@@ -63,21 +63,14 @@ class EBlocDataUpdateCoordinator(DataUpdateCoordinator):
             if not self.authenticated:
                 await self._authenticate()
 
-            # Use current month for the index request
-            current_month = datetime.now().strftime("%Y-%m")
-
             home_data = await self._fetch_data(URL_HOME, {"pIdAsoc": self.config["pIdAsoc"], "pIdAp": self._pIdAp})
 
-            # Prefer luna_afisata from home data if available
-            luna = current_month
-            if isinstance(home_data, dict):
-                home_info = next(iter(home_data.values()), None) if home_data else None
-                if isinstance(home_info, dict) and home_info.get("luna_afisata"):
-                    luna = home_info["luna_afisata"]
+            # Use previous month for the index request (indexes update for last month)
+            last_month = (datetime.now().replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
 
             result = {
                 "home": home_data,
-                "index": await self._fetch_data(URL_INDEX, {"pIdAsoc": self.config["pIdAsoc"], "pLuna": luna, "pIdAp": "-1"}),
+                "index": await self._fetch_data(URL_INDEX, {"pIdAsoc": self.config["pIdAsoc"], "pLuna": last_month, "pIdAp": "-1"}),
                 "receipts": await self._fetch_data(URL_RECEIPTS, {"pIdAsoc": self.config["pIdAsoc"], "pIdAp": self._pIdAp}),
             }
             _LOGGER.debug("Date actualizate cu succes: home=%s, index_keys=%s, receipts=%s",
